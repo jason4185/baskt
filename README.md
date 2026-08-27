@@ -4,11 +4,10 @@ Daily ETF UP/DOWN prediction markets powered by GenLayer.
 
 Baskt lets users predict whether a supported ETF-linked perpetual market will close above or below its opening price for a specific UTC day. Binance Futures and Bitget Futures are used as independent settlement sources.
 
-| Resource | Link |
+| Resource | Value |
 | --- | --- |
 | Live Demo | [Open Baskt](https://baskt-black.vercel.app/) |
-| GitHub | [github.com/jason4185/baskt](https://github.com/jason4185/baskt) |
-| Deployed contract | [`0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807`](https://explorer-bradbury.genlayer.com/address/0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807) |
+| Deployed contract | `0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807` |
 | Network | GenLayer Bradbury Testnet |
 
 ## Overview
@@ -22,12 +21,6 @@ For example, a SPY market for a target UTC day asks whether `SPYUSDT` closes abo
 - `close > open` means `UP`.
 - `close < open` means `DOWN`.
 - `close == open` is `NON_DIRECTIONAL` and cannot produce a normal winner.
-
-## Live App
-
-Try the deployed app at [baskt-black.vercel.app](https://baskt-black.vercel.app/).
-
-The current deployment uses the GenLayer Bradbury Testnet and the contract listed above.
 
 ## How Baskt Works
 
@@ -177,17 +170,19 @@ Baskt has three cooperating layers:
 
 ### GenLayer contract
 
-The contract is the canonical source of truth for:
+The Baskt contract is the canonical source of truth for all market and user state, including:
 
+- supported assets and contract configuration
 - markets and their lifecycle
-- positions and side pools
-- settlement and normalized evidence
-- payouts, refunds, and claims
+- positions, chosen sides, and user stake
+- side pools and total pool balances
+- settlement status, winning side, and normalized evidence
+- refund status, claimable amounts, and claimed state
 - bounded pagination and user reads
 
-### Frontend
+### Application frontend
 
-The React frontend handles market discovery, wallet connection, transaction submission, market details, portfolio views, activity submitted from the browser, and claim actions.
+The React frontend handles market discovery, contract reads, wallet connection, transaction submission, market details, portfolio views, contract-backed account views, and claim actions. It does not maintain an independent copy of Baskt market or user state.
 
 ### Public live market data
 
@@ -211,10 +206,6 @@ Baskt is an app-specific contract rather than a reusable prediction-market frame
 - compact evidence storage with no raw API response blobs
 - deployed contract source size below the 52 KB project limit
 
-Deployed contract:
-
-[`0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807`](https://explorer-bradbury.genlayer.com/address/0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807)
-
 ## Frontend
 
 The frontend provides:
@@ -223,7 +214,7 @@ The frontend provides:
 - Market Detail pages with live price context, charts, pools, state, and evidence
 - Create Market for supported assets and future UTC days
 - Portfolio views for active, claimable, and historical positions
-- Browser-submitted Activity records
+- Contract-backed account activity
 - How It Works documentation
 
 It uses real contract reads and writes, React Query caching, bounded polling, live ETF-linked prices, 24-hour changes, and responsive Strata-style historical line charts. Contract state controls the market state, pools, positions, capacity, settlement evidence, claimable amounts, and pagination.
@@ -273,7 +264,7 @@ npm install
 npm run dev
 ```
 
-The development server prints its localhost URL. Configure a compatible injected wallet for the GenLayer Bradbury Testnet before submitting transactions.
+The development server prints its localhost URL. Configure a compatible injected wallet for the configured network before submitting transactions.
 
 ## Testing
 
@@ -307,7 +298,7 @@ npm run build
 
 ## Security and Safety
 
-- The contract is the source of truth; the frontend cannot choose settlement results or claim amounts.
+- Settlement results and claim amounts cannot be chosen by the frontend.
 - Only the four supported assets and fixed settlement sources are accepted.
 - Source responses are bounded, each source has three total attempts, and candle timestamps must exactly match the target UTC start.
 - Binance and Bitget must agree on direction before a normal settlement is stored.
@@ -322,7 +313,7 @@ npm run build
 
 Deploy and interact using the GenLayer tooling configured for the project. Validate the contract with GenVM lint and schema extraction before deployment, then verify that the deployed address and network match the frontend configuration.
 
-The current deployment target is the GenLayer Bradbury Testnet. The frontend is configured to use the deployed Baskt contract at `0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807`.
+The current deployment target and deployed contract are listed in the resource table above.
 
 ## Current Status
 

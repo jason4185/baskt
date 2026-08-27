@@ -1,20 +1,21 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  ArrowRight,
-  CheckCircle2,
-  Clock3,
-  FilePlus2,
-  History,
-  RefreshCw,
-  ShieldAlert,
-  Trash2,
-  WalletCards,
-} from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { ArrowRight, History, Wallet } from "lucide-react";
 
+import {
+  AssetIcon,
+  EmptyState,
+  ErrorState,
+  RowSkeleton,
+  SideTag,
+  StateBadge,
+} from "@/components/baskt/primitives";
+import { Pager } from "@/components/baskt/Pager";
 import { Button } from "@/components/ui/button";
-import { clearActivity, useActivity } from "@/lib/activity";
-import type { TxKind, TxReceipt } from "@/lib/baskt/types";
-import { cn } from "@/lib/utils";
+import { baskt, formatGen, ticker } from "@/lib/baskt";
+import type { UserPosition } from "@/lib/baskt/types";
+import { useWallet } from "@/lib/wallet";
 
 export const Route = createFileRoute("/activity")({
   head: () => ({ meta: [{ title: "Activity · BASKT" }] }),
@@ -22,44 +23,72 @@ export const Route = createFileRoute("/activity")({
 });
 
 function ActivityPage() {
-  const entries = useActivity();
+  const { address, connect, connecting } = useWallet();
+  const [offsets, setOffsets] = useState<number[]>([0]);
+  const cursor = offsets[offsets.length - 1] ?? 0;
+  const positions = useQuery({
+    queryKey: ["account-activity", address, cursor],
+    queryFn: () => baskt.get_user_positions({ wallet: address!, offset: cursor, limit: 50 }),
+    enabled: !!address,
+  });
+
+  if (!address) {
+    return (
+      <div className="mx-auto max-w-xl py-12">
+        <EmptyState
+          title="Connect to see your markets"
+          description="Positions and claims recorded by the Baskt contract are private to your wallet."
+          action={
+            <Button onClick={() => void connect()} disabled={connecting}>
+              <Wallet className="h-4 w-4" />
+              {connecting ? "Connecting…" : "Connect wallet"}
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
+  const rows = positions.data?.items ?? [];
   return (
     <div className="space-y-6">
       <section className="panel p-5 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="label-xs text-primary">Browser activity</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight lg:text-3xl">
-              Your submissions
-            </h1>
+            <p className="label-xs text-primary">Contract activity</p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight lg:text-3xl">Your markets</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-              Transactions you submitted from this browser are shown here. This is not full wallet
-              history.
+              Positions and claims recorded by the Baskt contract.
             </p>
           </div>
-          {entries.length > 0 && (
-            <Button variant="outline" size="sm" onClick={clearActivity}>
-              <Trash2 className="h-4 w-4" /> Clear local activity
-            </Button>
-          )}
+          <span className="num rounded-md border border-border bg-elevated px-3 py-2 text-xs">
+            {address.slice(0, 6)}…{address.slice(-4)}
+          </span>
         </div>
       </section>
       <div className="rounded-md border border-primary/20 bg-primary/5 p-4 text-xs leading-relaxed text-muted-foreground">
         <div className="flex gap-2">
-          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <History className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <span>
-            These records are saved locally in this browser. The transaction id links to the real
-            submission returned by GenLayer.
+            Baskt does not expose a transaction history feed. This page shows your contract-backed
+            positions, market states, results, and claimable amounts.
           </span>
         </div>
       </div>
-      {entries.length === 0 ? (
+      {positions.isLoading ? (
+        <RowSkeleton />
+      ) : positions.isError ? (
+        <ErrorState
+          message={(positions.error as Error).message}
+          retry={() => void positions.refetch()}
+        />
+      ) : rows.length === 0 ? (
         <div className="mx-auto max-w-xl">
           <div className="panel flex flex-col items-center gap-3 px-6 py-14 text-center">
             <History className="h-7 w-7 text-muted-foreground" />
-            <p className="text-sm font-medium">No local activity yet</p>
+            <p className="text-sm font-medium">No markets yet</p>
             <p className="max-w-sm text-xs text-muted-foreground">
-              Submit a create, stake, settle, or claim transaction and it will appear here.
+              Join a market and your position will appear here after the contract records it.
             </p>
             <Button asChild variant="outline">
               <Link to="/">
@@ -71,81 +100,82 @@ function ActivityPage() {
       ) : (
         <section className="panel overflow-hidden">
           <div className="border-b border-border px-4 py-3 text-[11px] uppercase tracking-wide text-muted-foreground">
-            Recent local actions · {entries.length}
+            Contract-backed positions · {positions.data?.total ?? rows.length}
           </div>
           <div className="divide-y divide-border">
-            {entries.map((entry) => (
-              <ActivityRow key={`${entry.hash}-${entry.submitted_at}`} entry={entry} />
+            {rows.map((row) => (
+              <AccountPositionRow key={row.market.market_id} row={row} />
             ))}
           </div>
         </section>
+      )}
+      {rows.length > 0 && positions.data && (
+        <Pager
+          offsets={offsets}
+          cursor={cursor}
+          nextOffset={positions.data.next_offset}
+          hasMore={positions.data.has_more}
+          loading={positions.isFetching}
+          count={rows.length}
+          onChange={setOffsets}
+        />
       )}
     </div>
   );
 }
 
-function ActivityRow({ entry }: { entry: TxReceipt }) {
-  const icon =
-    entry.kind === "stake" ? (
-      <WalletCards className="h-4 w-4" />
-    ) : entry.kind === "create_market" ? (
-      <FilePlus2 className="h-4 w-4" />
-    ) : entry.kind === "settle_market" ? (
-      <RefreshCw className="h-4 w-4" />
-    ) : (
-      <CheckCircle2 className="h-4 w-4" />
-    );
-  const marketLabel = entry.market_id === null ? "Market creation" : `Market #${entry.market_id}`;
+function AccountPositionRow({ row }: { row: UserPosition }) {
+  const { market, position, claimable } = row;
+  const result = position.claimed
+    ? "Claimed"
+    : position.result === "WON"
+      ? "Won"
+      : position.result === "LOST"
+        ? "Lost"
+        : position.result === "REFUND_AVAILABLE"
+          ? "Refund available"
+          : position.result === "PENDING"
+            ? "Pending"
+            : "—";
   return (
-    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-start gap-3">
-        <span
-          className={cn(
-            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-elevated text-primary",
-            entry.status === "ERROR" && "text-destructive",
-          )}
-        >
-          {icon}
-        </span>
+    <div className="grid gap-3 p-4 md:grid-cols-[minmax(180px,1.4fr)_90px_120px_130px_130px_120px] md:items-center md:gap-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <AssetIcon asset={market.asset} size="sm" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{entry.summary}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>{labelFor(entry.kind)}</span>
-            <span>{marketLabel}</span>
-            <span className="flex items-center gap-1">
-              <Clock3 className="h-3 w-3" />
-              {new Date(entry.submitted_at * 1000).toLocaleString()}
-            </span>
-          </div>
+          <Link
+            to="/market/$id"
+            params={{ id: String(market.market_id) }}
+            className="block truncate text-sm font-medium hover:text-primary"
+          >
+            {ticker(market.asset)} · {market.target_day}
+          </Link>
+          <span className="text-xs text-muted-foreground">Market #{market.market_id}</span>
         </div>
       </div>
-      <div className="flex items-center gap-3 pl-11 sm:pl-0">
-        <span
-          className={cn(
-            "rounded-full border px-2 py-0.5 text-[11px] font-medium",
-            entry.status === "SUCCESS"
-              ? "border-up/30 bg-up-soft text-up"
-              : entry.status === "ERROR"
-                ? "border-destructive/30 bg-destructive/10 text-destructive"
-                : "border-border text-muted-foreground",
-          )}
-        >
-          {entry.status}
-        </span>
-        <span className="num max-w-28 truncate text-[11px] text-muted-foreground">
-          {entry.hash}
-        </span>
+      <div>
+        <span className="label-xs md:hidden">Side</span>
+        <div className="mt-1 md:mt-0">{position.side ? <SideTag side={position.side} /> : "—"}</div>
+      </div>
+      <div>
+        <span className="label-xs md:hidden">Stake</span>
+        <p className="num mt-1 text-sm md:mt-0">{formatGen(position.amount)}</p>
+      </div>
+      <div>
+        <span className="label-xs md:hidden">Status</span>
+        <div className="mt-1 md:mt-0">
+          <StateBadge state={market.state} />
+        </div>
+      </div>
+      <div>
+        <span className="label-xs md:hidden">Result</span>
+        <p className="mt-1 text-sm font-medium md:mt-0">{result}</p>
+      </div>
+      <div>
+        <span className="label-xs md:hidden">Claimable</span>
+        <p className="num mt-1 text-sm md:mt-0">
+          {claimable.claimable ? formatGen(claimable.amount) : position.claimed ? "Claimed" : "—"}
+        </p>
       </div>
     </div>
   );
-}
-
-function labelFor(kind: TxKind): string {
-  return kind === "create_market"
-    ? "Create market"
-    : kind === "stake"
-      ? "Stake"
-      : kind === "settle_market"
-        ? "Settlement"
-        : "Claim";
 }

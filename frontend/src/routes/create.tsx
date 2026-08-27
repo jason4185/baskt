@@ -7,7 +7,6 @@ import { AssetIcon, CardSkeleton, EmptyState, ErrorState } from "@/components/ba
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { baskt, ticker, utcDateTime, utcDayLong, type Asset } from "@/lib/baskt";
-import { recordActivity } from "@/lib/activity";
 import { friendlyError } from "@/lib/baskt/errors";
 import { useWallet } from "@/lib/wallet";
 import { cn } from "@/lib/utils";
@@ -60,7 +59,6 @@ function CreateMarketPage() {
       return baskt.create_market(selectedAsset, targetDay);
     },
     onSuccess: async (receipt) => {
-      recordActivity(receipt);
       toast.success(
         receipt.status === "SUCCESS"
           ? "Market created."

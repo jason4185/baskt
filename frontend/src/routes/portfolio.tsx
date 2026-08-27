@@ -15,7 +15,6 @@ import {
   Stat,
 } from "@/components/baskt/primitives";
 import { baskt, formatGen, ticker, type MarketState, type UserPosition } from "@/lib/baskt";
-import { recordActivity } from "@/lib/activity";
 import { useWallet } from "@/lib/wallet";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -73,7 +72,6 @@ function PortfolioPage() {
     setActionError(null);
     try {
       const receipt = await baskt.claim(row.market.market_id);
-      recordActivity(receipt);
       toast.success(
         receipt.status === "SUCCESS"
           ? "Claim confirmed."

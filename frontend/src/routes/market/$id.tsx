@@ -30,8 +30,7 @@ import { LivePriceChart } from "@/components/baskt/LivePriceChart";
 import { baskt, formatGen, ticker, toBase, toGen, utcDateTime, utcDayLong } from "@/lib/baskt";
 import { formatScaledPrice } from "@/lib/baskt/format";
 import { friendlyError } from "@/lib/baskt/errors";
-import type { Market, Side, SettlementEvidence } from "@/lib/baskt/types";
-import { recordActivity } from "@/lib/activity";
+import type { Market, Side, SettlementEvidence, TxReceipt } from "@/lib/baskt/types";
 import { useLivePrices } from "@/lib/prices";
 import type { LivePrice } from "@/lib/prices";
 import { useWallet } from "@/lib/wallet";
@@ -96,12 +95,11 @@ function MarketDetailPage() {
     ]);
   };
 
-  const runAction = async (action: () => Promise<Parameters<typeof recordActivity>[0]>) => {
+  const runAction = async (action: () => Promise<TxReceipt>) => {
     setSubmitting(true);
     setActionError(null);
     try {
       const receipt = await action();
-      recordActivity(receipt);
       toast.success(
         receipt.status === "SUCCESS"
           ? "Transaction confirmed."
@@ -707,8 +705,8 @@ function ActionPanel({
           />
         )}
         <div className="border-t border-border pt-4 text-[11px] leading-relaxed text-muted-foreground">
-          Your transaction is sent to the deployed Baskt contract. Activity is saved locally for
-          this browser.
+          Your transaction is sent to the deployed Baskt contract. Position and claim status come
+          from the contract.
         </div>
       </div>
     </div>

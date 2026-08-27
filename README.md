@@ -1,217 +1,236 @@
 # Baskt
 
-Daily ETF UP/DOWN prediction markets on GenLayer.
+Daily ETF UP/DOWN prediction markets powered by GenLayer.
 
-Baskt uses Binance Futures and Bitget Futures as independent settlement
-sources for daily ETF-linked perpetual markets.
+Baskt lets users predict whether a supported ETF-linked perpetual market will close above or below its opening price for a specific UTC day. Binance Futures and Bitget Futures are used as independent settlement sources.
+
+| Resource | Link |
+| --- | --- |
+| Live Demo | [Open Baskt](https://baskt-black.vercel.app/) |
+| GitHub | [github.com/jason4185/baskt](https://github.com/jason4185/baskt) |
+| Deployed contract | [`0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807`](https://explorer-bradbury.genlayer.com/address/0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807) |
+| Network | GenLayer Bradbury Testnet |
 
 ## Overview
 
-Baskt is an app-specific GenLayer prediction market, not a reusable contract
-primitive or library. Each market represents one supported asset and one UTC
-calendar day. Users predict whether that day's candle closes above or below
-its open, then stake native GEN on `UP` or `DOWN`.
+Baskt is an app-specific daily prediction market built on GenLayer. Each market represents one supported asset and one UTC calendar day.
 
-The contract is the source of truth for market state, positions, pools,
-settlement evidence, payouts, refunds, and claims.
+Users choose `UP` or `DOWN` and stake GEN. The question is whether the asset's daily market close is higher or lower than its daily market open. These markets are linked to ETF-related perpetual futures symbols; they do not represent ownership of SPY, QQQ, EWY, or EWJ shares.
 
-## How It Works
+For example, a SPY market for a target UTC day asks whether `SPYUSDT` closes above or below its open during that day:
 
-1. A market is created for a supported asset and future UTC day.
-2. Users choose `UP` or `DOWN` and stake GEN.
-3. Entries close when the target day begins at `00:00 UTC`.
-4. After the target day ends, anyone can settle the market.
-5. Binance Futures and Bitget Futures are checked independently.
-6. If both sources agree on `UP` or `DOWN`, that side wins.
-7. If they do not agree, the market is `INCONCLUSIVE` and original stakes are refunded.
-8. Winning users claim their pari-mutuel payout.
+- `close > open` means `UP`.
+- `close < open` means `DOWN`.
+- `close == open` is `NON_DIRECTIONAL` and cannot produce a normal winner.
+
+## Live App
+
+Try the deployed app at [baskt-black.vercel.app](https://baskt-black.vercel.app/).
+
+The current deployment uses the GenLayer Bradbury Testnet and the contract listed above.
+
+## How Baskt Works
+
+1. A daily market is created for one supported asset and UTC day.
+2. Users connect an injected browser wallet.
+3. Users choose `UP` or `DOWN`.
+4. Users stake between 1 and 10 GEN.
+5. When the target UTC day starts, entries automatically close.
+6. When that UTC day ends, the market becomes ready to settle.
+7. Anyone can trigger settlement.
+8. Baskt checks Binance Futures and Bitget Futures independently.
+9. GenLayer validators independently verify the settlement evidence.
+10. If both sources agree on `UP` or `DOWN`, the market settles to that direction.
+11. If valid directional consensus cannot be established, the market becomes `INCONCLUSIVE`.
+12. Winners claim a proportional payout, or users reclaim their stake when a refund applies.
+
+```mermaid
+flowchart LR
+    A[Create daily market] --> B[Users stake UP or DOWN]
+    B --> C[Target UTC day starts]
+    C --> D[Market locked]
+    D --> E[Target UTC day ends]
+    E --> F[Ready to settle]
+    F --> G[Binance + Bitget checked]
+    G --> H{Matching direction?}
+    H -->|UP or DOWN| I[SETTLED]
+    H -->|No| J[INCONCLUSIVE]
+    I --> K[Winners claim]
+    J --> L[Users claim refunds]
+```
+
+## Why Two Settlement Sources?
+
+Baskt uses Binance Futures and Bitget Futures so the result is not based on one external market-data source alone.
+
+The exact prices reported by the exchanges do not need to match. Baskt compares each source's direction for the same target UTC day. Binance and Bitget must both independently report `UP`, or both must independently report `DOWN`. One valid source alone can never settle the market.
 
 ## Supported Markets
 
-V1 supports exactly these four symbols. The frontend cannot add arbitrary
-assets.
-
-| Asset | Contract symbol |
+| ETF reference | Baskt market symbol |
 | --- | --- |
 | SPY | `SPYUSDT` |
 | QQQ | `QQQUSDT` |
 | EWY | `EWYUSDT` |
 | EWJ | `EWJUSDT` |
 
+Baskt V1 intentionally supports only these four futures-market symbols. Market creation does not accept arbitrary assets, exchanges, source URLs, intervals, or settlement rules.
+
 ## Market Lifecycle
 
 | State | Meaning |
 | --- | --- |
-| `OPEN` | Users can stake before the target UTC day starts. |
-| `LOCKED` | The target UTC day has started. New entries are closed. |
-| `READY_TO_SETTLE` | The target UTC day has ended and anyone can settle. |
-| `SETTLED` | Both sources agreed on a directional result. |
-| `INCONCLUSIVE` | Matching directional evidence was not established, so stakes are refunded. |
+| `OPEN` | Users can stake. |
+| `LOCKED` | The target UTC day has started and new entries are closed. |
+| `READY_TO_SETTLE` | The target UTC day has ended and settlement can be triggered. |
+| `SETTLED` | Binance and Bitget agreed on `UP` or `DOWN`. |
+| `INCONCLUSIVE` | A valid directional agreement was not reached and refunds apply. |
 
-The contract derives these states from its deterministic transaction datetime
-and the market's UTC timestamps. No separate market-close transaction is
-required.
+The contract derives these states from deterministic UTC timestamps. No administrator needs to send a separate transaction to close entries. The target window is `[target_start, target_end)`, where `target_start` is midnight UTC on the target day and `target_end` is midnight UTC on the following day.
 
-## Settlement
+## Settlement Flow
 
-Each market resolves the exact interval:
+When a market is ready, Baskt requests the exact daily candle for the target UTC window.
 
-```text
-[target_start, target_end)
-```
-
-where `target_start` is the target day's UTC midnight and `target_end` is the
-following UTC midnight. Source requests use:
+Binance Futures uses:
 
 ```text
-startTime = target_start_ms
-endTime   = target_end_ms - 1
-limit     = 1
+symbol=<supported_symbol>
+interval=1d
+startTime=target_start_ms
+endTime=target_end_ms - 1
+limit=1
 ```
 
-Binance Futures uses daily klines with `interval=1d`. Bitget Futures uses
-`productType=usdt-futures` and the mandatory `granularity=1Dutc`. The returned
-candle timestamp must exactly equal `target_start_ms`; a previous, next, or
-nearest-day candle is rejected.
-
-Baskt reads the candle timestamp, open, and close. Direction is calculated
-without floating-point settlement math:
+Bitget Futures uses:
 
 ```text
-close > open  → UP
-close < open  → DOWN
-close == open → NON_DIRECTIONAL
+symbol=<supported_symbol>
+productType=usdt-futures
+granularity=1Dutc
+startTime=target_start_ms
+endTime=target_end_ms - 1
+limit=1
 ```
 
-Each source receives exactly three total fetch attempts. Missing, malformed,
-non-success, incorrectly timestamped, or invalid candle data consumes an
-attempt. A valid flat candle is not retried; it is valid `NON_DIRECTIONAL`
-evidence.
+For both sources, the response must contain a valid candle whose timestamp is exactly `target_start_ms`. Previous-day, next-day, nearest, missing, malformed, or incorrectly shaped candles are rejected. The candle's open is read from index 1 and its close from index 4.
 
-The settlement truth table is:
+Each source receives exactly three total fetch attempts. A valid flat candle is accepted as `NON_DIRECTIONAL` without another attempt. After three invalid or unavailable attempts, that source is recorded as `UNAVAILABLE`.
 
-```text
-Binance UP   + Bitget UP   → SETTLED / UP
-Binance DOWN + Bitget DOWN → SETTLED / DOWN
-Anything else               → INCONCLUSIVE / refund_all
-```
+The settlement result is:
 
-Prices are never averaged, and one source cannot settle a market by itself.
-If a temporary GenLayer validator or consensus execution failure prevents a
-safe result, the write fails without finalizing the market. Settlement can be
-attempted again later.
+| Binance direction | Bitget direction | Result |
+| --- | --- | --- |
+| `UP` | `UP` | `SETTLED` to `UP` |
+| `DOWN` | `DOWN` | `SETTLED` to `DOWN` |
+| Any other combination | Any other combination | `INCONCLUSIVE` |
+
+Any combination other than matching `UP`/`UP` or `DOWN`/`DOWN` results in `INCONCLUSIVE` after source evaluation.
 
 ## Validator Consensus
 
-The proposer fetches the fixed Binance and Bitget sources. Validators
-independently fetch the same sources and compare normalized settlement fields
-instead of blindly trusting proposer data. Baskt validates the agreed result
-again before storing evidence and changing the market state.
+Baskt does not simply trust the first machine that fetches Binance and Bitget.
 
-This follows the same core validator/equivalence philosophy as Strata, while
-using Baskt's own assets, sources, target-day candle, and directional rules.
+The proposer fetches both sources. Validators independently fetch the same sources and compare normalized settlement evidence, including the material timestamp, prices, directions, status, and attempt count. Irrelevant request metadata is not part of the result. The contract validates the agreed result again before storing the final market outcome.
+
+This follows the same core validator/equivalence design philosophy as Strata while using Baskt's own daily-candle sources and direction rules.
+
+A temporary validator or GenLayer execution failure is different from a source failure. It fails the settlement transaction safely and leaves the market retryable. It does not permanently mark the market `INCONCLUSIVE`.
+
+```mermaid
+flowchart TD
+    A[Market ready] --> B[Proposer]
+    B --> C[Binance candle]
+    B --> D[Bitget candle]
+    C --> E[Normalized evidence]
+    D --> E
+    E --> F[Validators independently refetch]
+    F --> G[Agreement]
+    G --> H[Contract validation]
+    H --> I[SETTLED or INCONCLUSIVE]
+```
 
 ## Staking and Payouts
 
-- Minimum stake: `1 GEN`.
-- Maximum cumulative stake: `10 GEN` per wallet per market.
-- Same-side top-ups are allowed until the market locks.
-- Switching from `UP` to `DOWN`, or from `DOWN` to `UP`, is forbidden.
-- There are no market, stake, or claim fees in V1.
-- Positions cannot be withdrawn or transferred.
+| Rule | Value |
+| --- | --- |
+| Minimum stake | `1 GEN` |
+| Maximum cumulative stake | `10 GEN` per wallet per market |
+| V1 fees | None |
+| Entry deadline | Target day start in UTC |
 
-Normal payouts use integer pari-mutuel accounting:
+Users can top up the same side until the market locks. A wallet cannot switch from `UP` to `DOWN`, or from `DOWN` to `UP`, after entering. The 10 GEN limit applies to the wallet's cumulative stake in that market, not to each transaction.
+
+For a normally settled market, the total pool is shared proportionally among users on the winning side:
 
 ```text
-payout = total pool × user winning stake / total winning-side stake
+payout = total pool × user winning stake ÷ total winning-side stake
 ```
 
-The total pool is shared proportionally among users on the winning side. If
-the winning side has no stake, `refund_all` is enabled and every participant
-can recover the original stake. An `INCONCLUSIVE` market also refunds each
-participant's original stake.
+The contract calculates the amount using integer arithmetic. The frontend never supplies a payout amount.
+
+If the market is `INCONCLUSIVE`, users can claim their original stake back. If the settled winning direction has no stake on that side, Baskt also sets `refund_all` and returns every participant's original stake rather than leaving funds stranded. The directional evidence remains stored for auditability.
 
 ## Architecture
 
-```text
-React frontend
-      ↓ reads and writes
-GenLayer Bradbury
-      ↓
-Baskt contract
-      ↓ validator consensus
-Binance Futures + Bitget Futures
-```
+Baskt has three cooperating layers:
 
-### Contract
+### GenLayer contract
 
-The contract owns:
+The contract is the canonical source of truth for:
 
-- market identity and UTC lifecycle
-- positions, side pools, and total pools
-- source fetching and normalized evidence
-- validator-bound settlement
-- payout and refund accounting
-- caller-bound claims
-- bounded market and position pagination
+- markets and their lifecycle
+- positions and side pools
+- settlement and normalized evidence
+- payouts, refunds, and claims
+- bounded pagination and user reads
 
 ### Frontend
 
-The React frontend displays markets, submits wallet transactions, and provides
-market detail, portfolio, activity, create-market, and help pages. React
-Query caches contract reads and refreshes relevant data after writes.
+The React frontend handles market discovery, wallet connection, transaction submission, market details, portfolio views, activity submitted from the browser, and claim actions.
 
-Live ETF prices and historical charts use public Binance market data for
-display only. They do not determine the winning side, settlement evidence,
-payouts, or refunds.
+### Public live market data
 
-## Contract
+The frontend also displays current prices, 24-hour changes, and historical charts for context. This data is display-only.
 
-The deployed Baskt contract is:
+> Live frontend prices and charts do not determine settlement. Settlement comes only from the GenLayer contract's Binance and Bitget consensus logic.
 
-```text
-0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807
-```
+## Contract Design
 
-Network: **GenLayer Bradbury Testnet**.
+Baskt is an app-specific contract rather than a reusable prediction-market framework. Its important design properties are:
 
-Public writes are:
+- permissionless market creation for the fixed asset and UTC-day allowlist
+- permissionless settlement after the target day ends
+- caller-bound claims with no caller-supplied payout amount
+- fixed Binance Futures and Bitget Futures source configuration
+- bounded source responses and exactly three attempts per source
+- strict target candle timestamp verification
+- bounded mappings, indexes, scans, and pagination
+- no `DynArray`
+- effects-before-transfer claim ordering
+- compact evidence storage with no raw API response blobs
+- deployed contract source size below the 52 KB project limit
 
-```text
-create_market(asset, target_day)
-stake(market_id, side)          payable
-settle_market(market_id)
-claim(market_id)
-```
+Deployed contract:
 
-Market creation and settlement are permissionless. Staking uses the caller's
-wallet and native GEN value. Claims are bound to the caller's own position;
-the caller cannot supply a payout amount or recipient.
-
-The contract uses fixed maps, scalar counters, compact records, and bounded
-loops. It has no `DynArray`, no caller-controlled source configuration, no V1
-fees, and no arbitrary withdrawal path.
+[`0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807`](https://explorer-bradbury.genlayer.com/address/0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807)
 
 ## Frontend
 
-The frontend includes:
+The frontend provides:
 
-- Markets discovery and filters
-- Market detail with live price, chart, pools, rules, and evidence
-- Create market
-- Portfolio tabs for active, claimable, and historical positions
+- Markets and supported-asset discovery
+- Market Detail pages with live price context, charts, pools, state, and evidence
+- Create Market for supported assets and future UTC days
+- Portfolio views for active, claimable, and historical positions
 - Browser-submitted Activity records
-- How it works
+- How It Works documentation
 
-Contract reads remain canonical for market state, pools, positions, claimable
-amounts, remaining capacity, settlement evidence, and pagination.
+It uses real contract reads and writes, React Query caching, bounded polling, live ETF-linked prices, 24-hour changes, and responsive Strata-style historical line charts. Contract state controls the market state, pools, positions, capacity, settlement evidence, claimable amounts, and pagination.
 
-## Wallets
+## Wallet Support
 
-Baskt uses RainbowKit, wagmi, and viem with injected browser wallets only.
-Supported examples include MetaMask, Rabby, and other compatible EIP-1193
-browser wallets. The application does not require a wallet connection to
-display public markets or live prices.
+Baskt uses RainbowKit, wagmi, and viem for wallet interaction. It supports injected browser wallets such as MetaMask, Rabby, and other compatible EIP-1193 wallets. Wallet connection is required for writes and user-specific reads, but public markets and live prices can be viewed without a wallet.
 
 ## Project Structure
 
@@ -226,15 +245,15 @@ baskt/
 ├── docs/
 │   └── architecture.md
 ├── frontend/
-│   └── ...
-└── README.md
+├── README.md
+└── .gitignore
 ```
 
 ## Getting Started
 
-The repository uses Node.js and npm for the frontend, and Python tooling for
-contract tests and validation. Development dependencies are listed in
-`requirements-dev.txt`.
+The contract tooling uses Python and the GenLayer development tools. The frontend uses Node.js and npm. The repository includes the development dependency requirements and frontend package scripts; use the versions supported by those project files.
+
+For local contract work:
 
 ```bash
 python -m venv .venv
@@ -242,12 +261,11 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 ```
 
-GenLayer tooling also needs a configured localnet, Studio, StudioNet, or
-testnet environment for execution and deployment-path tests. The checked-in
-`gltest.config.yaml` provides the localnet endpoint and the `studionet`
-target.
+Integration tests also require a configured and running GenLayer localnet, Studio, StudioNet, or another supported endpoint.
 
-## Running the Frontend
+## Running Locally
+
+Start the frontend with:
 
 ```bash
 cd frontend
@@ -255,80 +273,73 @@ npm install
 npm run dev
 ```
 
-Vite prints the local URL when the server starts. The frontend uses the
-Bradbury configuration in `frontend/src/lib/baskt/config.ts`.
+The development server prints its localhost URL. Configure a compatible injected wallet for the GenLayer Bradbury Testnet before submitting transactions.
 
 ## Testing
 
-Run contract checks from the project root:
+From the repository root, run the direct contract tests:
+
+```bash
+.venv/bin/pytest tests/direct/ -v
+```
+
+Run the integration suite when a GenLayer endpoint is available:
+
+```bash
+BASKT_RUN_INTEGRATION=1 .venv/bin/gltest tests/integration/ -v -s
+```
+
+The contract validation commands are:
 
 ```bash
 genvm-lint check contracts/Baskt.py
 genvm-lint schema contracts/Baskt.py --output baskt-schema.json
 genvm-lint typecheck contracts/Baskt.py
-pytest tests/direct/ -v
 ```
 
-Run the deployment-path integration test with a configured GenLayer execution
-environment:
+Run the frontend checks from `frontend/`:
 
 ```bash
-BASKT_RUN_INTEGRATION=1 gltest tests/integration/ -v -s
-```
-
-Run frontend checks with npm:
-
-```bash
-cd frontend
 npm run typecheck
 npm run lint
 npm run build
 ```
 
-Direct tests use deterministic Binance and Bitget response mocks. Integration
-tests exercise the configured deployment and execution path. Pickling and
-storage validation is covered by the direct storage tests.
+## Security and Safety
+
+- The contract is the source of truth; the frontend cannot choose settlement results or claim amounts.
+- Only the four supported assets and fixed settlement sources are accepted.
+- Source responses are bounded, each source has three total attempts, and candle timestamps must exactly match the target UTC start.
+- Binance and Bitget must agree on direction before a normal settlement is stored.
+- Temporary validator execution failures leave settlement retryable.
+- Claims are bound to the caller's own position, protected against double claims, and update state before transfer.
+- Stake caps, same-side position rules, pool accounting, and zero-winner refunds are enforced by the contract.
+- Pagination and raw scans are bounded, and persistent storage uses no `DynArray`.
+- The frontend accepts no arbitrary contract address or RPC configuration from users.
+- No private keys, seed phrases, or wallet secrets are stored in the frontend.
 
 ## Deployment
 
-Use the GenLayer deployment workflow for the configured Bradbury target and
-the pinned runner declared in the first line of `contracts/Baskt.py`. Do not
-replace that concrete runner pin with a local-only or latest alias before
-deployment.
+Deploy and interact using the GenLayer tooling configured for the project. Validate the contract with GenVM lint and schema extraction before deployment, then verify that the deployed address and network match the frontend configuration.
 
-After deployment, verify the generated schema and configure the frontend to
-use the intended deployed contract address and Bradbury RPC. The current
-frontend deployment points to the contract address shown above.
+The current deployment target is the GenLayer Bradbury Testnet. The frontend is configured to use the deployed Baskt contract at `0x1Dd45ED4eD6f66768deAF6C3c91F8999f6eD7807`.
 
-## Security and Design Principles
+## Current Status
 
-- The contract is the source of truth for all financial and settlement state.
-- Assets and settlement sources are fixed allowlists.
-- Callers cannot choose URLs, exchanges, intervals, results, or payout amounts.
-- Source responses are bounded, strictly shaped, timestamp-checked, and normalized to fixed-point integers.
-- Each source has at most three total attempts.
-- Validator execution failure is kept separate from source unavailability and does not silently finalize a market.
-- Claims are caller-bound, single-use, and marked before the finalized transfer interaction.
-- Pool and paid-out accounting guards prevent overpayment.
-- Pagination and raw scans are bounded at 50 items per call.
-- Storage uses serialization-safe records and maps with no `DynArray`.
-- The frontend has no private keys, seed phrases, or arbitrary RPC and contract inputs.
-- Frontend price and chart data is display-only and cannot affect settlement.
+The current repository verification status is:
 
-## Status
+| Check | Result |
+| --- | --- |
+| Direct contract tests | 45 passed |
+| Integration execution | Requires an available GenLayer endpoint |
+| GenVM lint | Passed |
+| Schema extraction | Passed |
+| Contract typecheck | Passed |
+| DynArray | No |
+| Contract size | 37,869 bytes |
+| 52 KB contract limit | Passed |
+| Frontend typecheck | Passed |
+| Frontend lint | Passed with non-failing Fast Refresh warnings |
+| Frontend build | Passed |
 
-Latest verified project status:
-
-```text
-Direct contract tests: 45 passed
-Integration tests: 1 passed
-DynArray: No
-Contract size: 37,869 bytes
-52 KB limit: Passed
-Frontend typecheck: Passed
-Frontend lint: Passed
-Frontend build: Passed
-```
-
-Baskt is an app-specific V1 backend and frontend for the four supported
-ETF-linked perpetual markets.
+The integration command is intentionally environment-dependent; it must be run against a configured GenLayer execution endpoint.

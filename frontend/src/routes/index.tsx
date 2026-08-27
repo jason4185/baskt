@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { baskt } from "@/lib/baskt";
 import { formatGen, ticker } from "@/lib/baskt/format";
-import type { Asset, MarketState } from "@/lib/baskt/types";
+import type { Asset, MarketState, Position } from "@/lib/baskt/types";
 import { MarketCard, marketQuestion } from "@/components/baskt/MarketCard";
 import { CardSkeleton, EmptyState, ErrorState, Stat } from "@/components/baskt/primitives";
 import { Pager } from "@/components/baskt/Pager";
@@ -86,6 +86,13 @@ function MarketsPage() {
     queryFn: () => baskt.get_user_positions({ wallet: address!, offset: 0, limit: 50 }),
     enabled: !!address,
   });
+  const positionByMarket = useMemo(() => {
+    const map = new Map<number, Position>();
+    for (const row of positions.data?.items ?? []) {
+      map.set(row.position.market_id, row.position);
+    }
+    return map;
+  }, [positions.data?.items]);
 
   const openPool = useMemo(() => {
     const items = openMarkets.data?.items ?? [];
@@ -145,7 +152,7 @@ function MarketsPage() {
         />
         <Stat
           label="Ready to settle"
-          value={ready.isLoading ? "—" : (ready.data?.total ?? 0)}
+          value={ready.isLoading ? "—" : (ready.data?.items.length ?? 0)}
           hint="Anyone can settle"
           icon={<Gavel className="h-4 w-4" />}
         />
@@ -251,7 +258,12 @@ function MarketsPage() {
             <>
               <div className="grid gap-3 xl:grid-cols-2">
                 {items.map((m) => (
-                  <MarketCard key={m.market_id} market={m} price={prices.data?.[m.asset]} />
+                  <MarketCard
+                    key={m.market_id}
+                    market={m}
+                    position={positionByMarket.get(m.market_id) ?? null}
+                    price={prices.data?.[m.asset]}
+                  />
                 ))}
               </div>
               <Pager
